@@ -1,7 +1,5 @@
 from dotenv import load_dotenv
-from collections.abc import Callable
-import asyncio
-
+from typing import Callable
 from langchain.agents.middleware import ModelRequest, ModelResponse, wrap_model_call
 from langchain.chat_models import init_chat_model
 from langchain.tools import tool, ToolRuntime
@@ -29,11 +27,12 @@ def read_email(runtime: ToolRuntime) -> str:
 def send_email(body: str) -> str:
     """Send an email to the given address with the given subject and body."""
     # fake email sending
-    print(body)
+    print("Sending Email: ", body)
     return "Email sent"
 
+
 @wrap_model_call
-async def set_tools(
+def set_tools(
     request: ModelRequest,
     handler: Callable[[ModelRequest], ModelResponse],
 ) -> ModelResponse:
@@ -41,20 +40,22 @@ async def set_tools(
 
     subscription = request.runtime.context.tier
 
-    tools = []
-    if subscription == "basic":
+    if subscription == "pro":
+        tools = request.tools
+    elif subscription == "basic":
         tools = [read_email]
-    elif subscription == "pro":
-        tools = [read_email, send_email]
+    else:
+        tools = []
+
+    request = request.override(tools=tools)
+
 
     print(
         f"Tier: {subscription}, "
-        f"Available tools: {[tool.name for tool in tools]}"
+        f"Available tools: {[tool.name for tool in request.tools]}"
     )
-    
-    request = request.override(tools=tools)
 
-    return await handler(request)
+    return handler(request)
 
 
 agent = create_agent(
@@ -65,45 +66,42 @@ agent = create_agent(
     state_schema=EmailState
 )
 
-async def run():
-    response = await agent.ainvoke(
-        {
-            "messages": [HumanMessage(content="Can you check my inbox?")],
-            "email": "No new mail in inbox"
-        },
-        context=Subscription()
-    )
-    print("Response: ", response["messages"][-1].content[-1]['text'])
 
-    print("-"*25)
-    response = await agent.ainvoke(
-        {
-            "messages": [HumanMessage(content="Can you check my inbox?")],
-            "email": "No new mail in inbox"
-        },
-        context=Subscription(tier="basic")
-    )
-    print("Response: ", response["messages"][-1].content[-1]['text'])
+response = agent.invoke(
+    {
+        "messages": [HumanMessage(content="Can you check my inbox?")],
+        "email": "No new mail in inbox"
+    },
+    context={"tier": "free"}
+)
+print("Response: ", response["messages"][-1].content[-1]['text'])
 
-    print("-"*25)
-    response = await agent.ainvoke(
-        {
-            "messages": [HumanMessage(content="Can you send an email to someone@anymail.com that i'll be late for the meeting.")],
-            "email": "No new mail in inbox"
-        },
-        context=Subscription(tier="basic")
-    )
-    print("Response: ", response["messages"][-1].content[-1]['text'])
+print("-"*25)
+response = agent.invoke(
+    {
+        "messages": [HumanMessage(content="Can you check my inbox?")],
+        "email": "No new mail in inbox"
+    },
+    context={"tier": "basic"}
+)
+print("Response: ", response["messages"][-1].content[-1]['text'])
 
-    print("-"*25)
-    response = await agent.ainvoke(
-        {
-            "messages": [HumanMessage(content="Can you send an email to someone@anymail.com that i'll be late for the meeting.")],
-            "email": "No new mail in inbox"
-        },
-        context=Subscription(tier="pro")
-    )
-    print("Response: ", response["messages"][-1].content[-1]['text'])
+print("-"*25)
+response = agent.invoke(
+    {
+        "messages": [HumanMessage(content="Can you send an email to someone@anymail.com that i'll be late for the meeting.")],
+        "email": "No new mail in inbox"
+    },
+    context={"tier": "basic"}
+)
+print("Response: ", response["messages"][-1].content[-1]['text'])
 
-
-asyncio.run(run())
+print("-"*25)
+response = agent.invoke(
+    {
+        "messages": [HumanMessage(content="Can you send an email to someone@anymail.com that i'll be late for the meeting.")],
+        "email": "No new mail in inbox"
+    },
+    context={"tier": "pro"}
+)
+print("Response: ", response["messages"][-1].content[-1]['text'])
